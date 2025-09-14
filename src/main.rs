@@ -2,9 +2,12 @@ use cv::Estimator;
 use cv::FeatureWorldMatch;
 use cv::WorldPoint; // FeatureWorldMatch<P> and WorldPoint
 use cv::nalgebra::Isometry3;
+use cv::nalgebra::Matrix3;
 use cv::nalgebra::Perspective3;
+use cv::nalgebra::Point2;
 use cv::nalgebra::Rotation3;
 use cv::nalgebra::Translation3;
+use cv::nalgebra::Vector2;
 use cv::nalgebra::{Point3, Unit, Vector3};
 use lambda_twist::LambdaTwist;
 /// A small helper: given camera intrinsics (fx, fy, cx, cy) and a pixel (u,v),
@@ -49,9 +52,9 @@ fn main() {
     // --- Example synthetic data -------------------------------------------------
     // Choose simple camera intrinsics:
     let fx = 4000.0;
-    let fy = 4000.0;
+    let fy = 3000.0;
     let cx = 2000.0;
-    let cy = 2000.0;
+    let cy = 1500.0;
 
     // Define three non-collinear world points (in meters).
     let w1 = Point3::new(7.54, 0.0, 2.75);
@@ -70,17 +73,20 @@ fn main() {
 
     let matrix_world = (global_transform).to_homogeneous();
 
-    let coords = Point3::new(6.89, -16.27, -13.47);
+    let coords = Point3::new(7.54, 0.0, 0.0);
     println!("coords : {coords}");
     let point = matrix_world.transform_point(&coords);
     println!("world point: {point}");
 
     println!("matrix_world: {matrix_world}");
-    let projection = Perspective3::new(1.0, 101.0f64.to_radians(), 0.1, 1000.0);
+    let projection = Perspective3::new(1.0, 101.49546f64.to_radians(), 0.1, 1000.0);
 
     let matrix_view = (global_transform).to_homogeneous().try_inverse().unwrap();
     println!("matrix_view:  {matrix_view}");
-    let projection = projection.into_inner();
+    let mut projection = projection.into_inner();
+
+    *projection.index_mut((0, 2)) = 0.000485966;
+    *projection.index_mut((1, 2)) = 0.0063451147;
     println!("projection: {projection}");
     let view_projection = projection * matrix_view;
     println!("view_projection: {view_projection}");
@@ -105,6 +111,27 @@ fn main() {
     println!("p1 = ({:.3}, {:.3})", u1, v1);
     println!("p2 = ({:.3}, {:.3})", u2, v2);
     println!("p3 = ({:.3}, {:.3})", u3, v3);
+
+    [&w2].iter().for_each(|item| {
+        let cp = global_transform.inverse_transform_point(item);
+        println!("projection before {cp}");
+        let cp = projection.transform_point(&cp);
+        println!("projection {cp}");
+        let p = (fx * (cp.x / cp.z) + cx, -fy * (cp.y / cp.z) + cy);
+        println!("p {p:?}");
+        let p = (fx * (cp.x) / 2.0 + cx, -fx * (cp.y) / 2.0 + cy);
+        println!("p {p:?}");
+
+        let transform = Matrix3::new_nonuniform_scaling(&Vector2::new(fx / 2.0, -fx / 2.0))
+            .append_translation(&Vector2::new(cx, cy));
+        println!("image point before {cp:?}");
+        let point = Point2::new(cp.x, cp.y).to_homogeneous();
+        println!("point {point:?}");
+        println!("transform {transform}");
+        let p2 = Point2::from_homogeneous(transform * point).unwrap().coords;
+
+        println!("p2 {p2:?}");
+    });
 
     // --- Convert pixel observations to bearing vectors -------------------------
     // processing should start from here (u,v) coordiantes are to be selected from image
