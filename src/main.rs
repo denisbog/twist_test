@@ -1,6 +1,12 @@
 use cv::Estimator;
 use cv::FeatureWorldMatch;
 use cv::WorldPoint; // FeatureWorldMatch<P> and WorldPoint
+use cv::nalgebra::Isometry3;
+use cv::nalgebra::Matrix3;
+use cv::nalgebra::Perspective3;
+use cv::nalgebra::Point2;
+use cv::nalgebra::Rotation3;
+use cv::nalgebra::Translation3;
 use cv::nalgebra::{Point3, Unit, Vector3};
 use lambda_twist::LambdaTwist;
 /// A small helper: given camera intrinsics (fx, fy, cx, cy) and a pixel (u,v),
@@ -44,43 +50,69 @@ fn project_world_point_to_pixel(
 fn main() {
     // --- Example synthetic data -------------------------------------------------
     // Choose simple camera intrinsics:
-    let fx = 800.0;
-    let fy = 800.0;
-    let cx = 320.0;
-    let cy = 240.0;
+    let fx = 4000.0;
+    let fy = 4000.0;
+    let cx = 2000.0;
+    let cy = 2000.0;
 
     // Define three non-collinear world points (in meters).
-    let w1 = Point3::new(0.0, 0.0, 0.0);
-    let w2 = Point3::new(1.0, 0.0, 0.0);
-    let w3 = Point3::new(0.0, 1.0, 0.0);
+    let w1 = Point3::new(7.54, 0.0, 2.75);
+    let w2 = Point3::new(7.54, 0.0, 0.0);
+    let w3 = Point3::new(0.0, 0.0, 0.0);
 
-    // Define a "ground truth" camera pose (camera looking down + some translation)
-    // We'll build a rotation (around X axis by -30 deg) and a translation.
-    let ang = -30f64.to_radians();
-    let rot = cv::nalgebra::Rotation3::from_euler_angles(ang, 0.0, 0.0);
-    let trans = cv::nalgebra::Translation3::new(0.0, 0.0, 3.0); // camera is 3m in front of origin
-    let gt_iso = cv::nalgebra::Isometry3::from_parts(trans, rot.into());
+    let rot = Rotation3::from_euler_angles(
+        89.3215f64.to_radians(),
+        -2.71232f64.to_radians(),
+        -110.38f64.to_radians(),
+    );
+    let trans = Translation3::new(0.536798, 3.3126, 1.31053);
+
+    let global_transform = Isometry3::from_parts(trans, rot.into());
+    println!("view {:?}", global_transform);
+
+    let matrix_world = (global_transform).to_homogeneous();
+
+    let coords = Point3::new(6.89, -16.27, -13.47);
+    println!("coords : {coords}");
+    let point = matrix_world.transform_point(&coords);
+    println!("world point: {point}");
+
+    println!("matrix_world: {matrix_world}");
+    let projection = Perspective3::new(1.0, 101.0f64.to_radians(), 0.1, 1000.0);
+
+    let matrix_view = (global_transform).to_homogeneous().try_inverse().unwrap();
+    println!("matrix_view:  {matrix_view}");
+    let projection = projection.into_inner();
+    println!("projection: {projection}");
+    let view_projection = projection * matrix_view;
+    println!("view_projection: {view_projection}");
+    let point = projection
+        * global_transform
+            .inverse_transform_point(&coords)
+            .to_homogeneous();
+    println!("view point: {point}");
+    let point = Point3::from_homogeneous(point).unwrap();
+    println!("view point: {point}");
 
     // Project world points with the ground-truth pose to produce pixel observations:
     let project_gt = |p: &Point3<f64>| {
-        let cp = gt_iso.transform_point(p);
+        let cp = global_transform.inverse_transform_point(p); //moving the camera
         (fx * (cp.x / cp.z) + cx, fy * (cp.y / cp.z) + cy)
     };
-
     let (u1, v1) = project_gt(&w1);
     let (u2, v2) = project_gt(&w2);
     let (u3, v3) = project_gt(&w3);
 
-    println!("Original pixel observations:");
+    println!("Original pixel observations:"); // should be given
     println!("p1 = ({:.3}, {:.3})", u1, v1);
     println!("p2 = ({:.3}, {:.3})", u2, v2);
     println!("p3 = ({:.3}, {:.3})", u3, v3);
 
     // --- Convert pixel observations to bearing vectors -------------------------
+    // processing should start from here (u,v) coordiantes are to be selected from image
     let b1 = pixel_to_bearing(u1, v1, fx, fy, cx, cy);
     let b2 = pixel_to_bearing(u2, v2, fx, fy, cx, cy);
     let b3 = pixel_to_bearing(u3, v3, fx, fy, cx, cy);
-
     // --- Build FeatureWorldMatch tuples for lambda-twist -----------------------
     // FeatureWorldMatch<P>(bearing, WorldPoint)
     // The WorldPoint type in cv_core is a wrapper over nalgebra::Point3<f64>.
@@ -117,6 +149,13 @@ fn main() {
     for (idx, pose) in candidates.iter().enumerate() {
         let mut cnt = 0usize;
         let mut err_sum = 0.0f64;
+
+        println!(
+            "check matrix_world {}",
+            pose.0.to_homogeneous().try_inverse().unwrap()
+        );
+        println!("check matrix_view {}", pose.0.to_homogeneous());
+
         for (u_gt, v_gt, world_pt) in &[(u1, v1, w1), (u2, v2, w2), (u3, v3, w3)] {
             if let Some((u_re, v_re)) = project_world_point_to_pixel(pose, world_pt, fx, fy, cx, cy)
             {
@@ -131,9 +170,13 @@ fn main() {
                 best = Some((idx, avg_err));
             }
             println!(
-                "Candidate {} avg reprojection error (px): {:.6}",
+                "Candidate {} avg reprojection error (px): {:.6}\n{}, rotion {}, {}, {}",
                 idx + 1,
-                avg_err
+                avg_err,
+                pose.0.translation,
+                pose.0.rotation.euler_angles().0.to_degrees(),
+                pose.0.rotation.euler_angles().1.to_degrees(),
+                pose.0.rotation.euler_angles().2.to_degrees()
             );
         }
     }
