@@ -2,9 +2,7 @@ use cv::Estimator;
 use cv::FeatureWorldMatch;
 use cv::WorldPoint; // FeatureWorldMatch<P> and WorldPoint
 use cv::nalgebra::Isometry3;
-use cv::nalgebra::Matrix3;
 use cv::nalgebra::Perspective3;
-use cv::nalgebra::Point2;
 use cv::nalgebra::Rotation3;
 use cv::nalgebra::Translation3;
 use cv::nalgebra::{Point3, Unit, Vector3};
@@ -58,7 +56,7 @@ fn main() {
     // Define three non-collinear world points (in meters).
     let w1 = Point3::new(7.54, 0.0, 2.75);
     let w2 = Point3::new(7.54, 0.0, 0.0);
-    let w3 = Point3::new(0.0, 0.0, 0.0);
+    let w3 = Point3::new(5.82, 0.0, 0.85);
 
     let rot = Rotation3::from_euler_angles(
         89.3215f64.to_radians(),
