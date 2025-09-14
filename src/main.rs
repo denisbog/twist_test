@@ -97,7 +97,6 @@ fn main() {
     println!("view point: {point}");
     let point = Point3::from_homogeneous(point).unwrap();
     println!("view point: {point}");
-
     // Project world points with the ground-truth pose to produce pixel observations:
     let project_gt = |p: &Point3<f64>| {
         let cp = global_transform.inverse_transform_point(p); //moving the camera
@@ -112,8 +111,9 @@ fn main() {
     println!("p2 = ({:.3}, {:.3})", u2, v2);
     println!("p3 = ({:.3}, {:.3})", u3, v3);
 
-    [&w2].iter().for_each(|item| {
+    [&w1, &w2, &w3].iter().for_each(|item| {
         let cp = global_transform.inverse_transform_point(item);
+        println!("projection before normalized {}", cp.coords.normalize()); // to get here
         println!("projection before {cp}");
         let cp = projection.transform_point(&cp);
         println!("projection {cp}");
@@ -128,15 +128,52 @@ fn main() {
         let point = Point2::new(cp.x, cp.y).to_homogeneous();
         println!("point {point:?}");
         println!("transform {transform}");
-        let p2 = Point2::from_homogeneous(transform * point).unwrap().coords;
+        let p2 = Point2::from_homogeneous(transform * point).unwrap();
 
         println!("p2 {p2:?}");
+
+        let test = Point3::from(
+            (projection.try_inverse().unwrap()
+                * Point3::from(transform.try_inverse().unwrap() * p2.to_homogeneous())
+                    .to_homogeneous())
+            .normalize()
+            .xyz(),
+        );
+        println!("test {test}");
     });
+
+    let coords = vec![
+        Point3::new(7.54, 0.0, 2.75),
+        Point3::new(7.54, 0.0, 0.0),
+        Point3::new(5.82, 0.0, 0.85),
+    ];
+
+    let pixels = vec![
+        Point2::new(2154.737265078878, 1194.8945899620421),
+        Point2::new(2126.5841860517053, 1776.635153145754),
+        Point2::new(2331.1681437869565, 1632.3580325758512),
+    ];
+
+    let bearings: Vec<Point3<f64>> = pixels
+        .iter()
+        .map(|item| {
+            let transform = Matrix3::new_nonuniform_scaling(&Vector2::new(fx / 2.0, -fx / 2.0))
+                .append_translation(&Vector2::new(cx, cy));
+            Point3::from(
+                (projection.try_inverse().unwrap()
+                    * Point3::from(transform.try_inverse().unwrap() * item.to_homogeneous())
+                        .to_homogeneous())
+                .normalize()
+                .xyz(),
+            )
+        })
+        .collect();
 
     // --- Convert pixel observations to bearing vectors -------------------------
     // processing should start from here (u,v) coordiantes are to be selected from image
     let b1 = pixel_to_bearing(u1, v1, fx, fy, cx, cy);
     let b2 = pixel_to_bearing(u2, v2, fx, fy, cx, cy);
+    println!("b2 {b2:?}");
     let b3 = pixel_to_bearing(u3, v3, fx, fy, cx, cy);
     // --- Build FeatureWorldMatch tuples for lambda-twist -----------------------
     // FeatureWorldMatch<P>(bearing, WorldPoint)
@@ -151,6 +188,16 @@ fn main() {
     let candidates = solver.estimate([fw1.clone(), fw2.clone(), fw3.clone()].into_iter());
 
     println!("Found {} candidate poses", candidates.len());
+    let features = coords
+        .into_iter()
+        .zip(bearings.into_iter())
+        .map(|(coords, bearing)| {
+            let bearing = Unit::new_normalize(Vector3::new(bearing.x, bearing.y, 1.0));
+            FeatureWorldMatch(bearing, WorldPoint(coords.to_homogeneous()))
+        });
+
+    let solver = LambdaTwist::new();
+    let candidates = solver.estimate(features);
 
     // Reproject each candidate and compare reprojection error.
     for (idx, pose) in candidates.iter().enumerate() {
