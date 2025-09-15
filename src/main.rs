@@ -2,11 +2,13 @@ use cv::Estimator;
 use cv::FeatureWorldMatch;
 use cv::WorldPoint; // FeatureWorldMatch<P> and WorldPoint
 use cv::nalgebra::Isometry3;
+use cv::nalgebra::IsometryMatrix3;
 use cv::nalgebra::Matrix3;
 use cv::nalgebra::Perspective3;
 use cv::nalgebra::Point2;
 use cv::nalgebra::Rotation3;
 use cv::nalgebra::Translation3;
+use cv::nalgebra::UnitQuaternion;
 use cv::nalgebra::Vector2;
 use cv::nalgebra::{Point3, Unit, Vector3};
 use lambda_twist::LambdaTwist;
@@ -79,14 +81,14 @@ fn main() {
     println!("world point: {point}");
 
     println!("matrix_world: {matrix_world}");
-    let projection = Perspective3::new(1.0, 101.49546f64.to_radians(), 0.1, 1000.0);
+    let projection = Perspective3::new(1.0, 100f64.to_radians(), 0.1, 1000.0);
 
     let matrix_view = (global_transform).to_homogeneous().try_inverse().unwrap();
     println!("matrix_view:  {matrix_view}");
-    let mut projection = projection.into_inner();
+    let projection = projection.into_inner();
 
-    *projection.index_mut((0, 2)) = 0.000485966;
-    *projection.index_mut((1, 2)) = 0.0063451147;
+    // *projection.index_mut((0, 2)) = 0.000485966;
+    // *projection.index_mut((1, 2)) = 0.0063451147;
     println!("projection: {projection}");
     let view_projection = projection * matrix_view;
     println!("view_projection: {view_projection}");
@@ -146,12 +148,21 @@ fn main() {
         Point3::new(7.54, 0.0, 2.75),
         Point3::new(7.54, 0.0, 0.0),
         Point3::new(5.82, 0.0, 0.85),
+        Point3::new(7.54, 0.0, 3.77),
     ];
 
     let pixels = vec![
-        Point2::new(2154.737265078878, 1194.8945899620421),
-        Point2::new(2126.5841860517053, 1776.635153145754),
-        Point2::new(2331.1681437869565, 1632.3580325758512),
+        // Point2::new(2154.737265078878, 1194.8945899620421),
+        // Point2::new(2126.5841860517053, 1776.635153145754),
+        // Point2::new(2331.1681437869565, 1632.3580325758512),
+        // Point2::new(2174.0, 1220.0),
+        // Point2::new(2144.0, 1804.0),
+        // Point2::new(2356.0, 1667.0),
+        // Point2::new(1279.0, 1818.0),
+        Point2::new(2161.0, 1173.0),
+        Point2::new(2130.0, 1772.0),
+        Point2::new(2342.0, 1624.0),
+        Point2::new(1234.0, 1787.0),
     ];
 
     let bearings: Vec<Point3<f64>> = pixels
@@ -226,6 +237,12 @@ fn main() {
             "check matrix_world {}",
             pose.0.to_homogeneous().try_inverse().unwrap()
         );
+
+        // let mut matrix = pose.0.to_homogeneous().try_inverse().unwrap();
+        // let matrix = matrix * -1.0;
+
+        // println!("check matrix_world {}", matrix);
+
         println!("check matrix_view {}", pose.0.to_homogeneous());
 
         for (u_gt, v_gt, world_pt) in &[(u1, v1, w1), (u2, v2, w2), (u3, v3, w3)] {
@@ -241,14 +258,17 @@ fn main() {
             if best.is_none() || avg_err < best.unwrap().1 {
                 best = Some((idx, avg_err));
             }
+
+            let world_matrix = pose.0.inverse();
+
             println!(
                 "Candidate {} avg reprojection error (px): {:.6}\n{}, rotion {}, {}, {}",
                 idx + 1,
                 avg_err,
-                pose.0.translation,
-                pose.0.rotation.euler_angles().0.to_degrees(),
-                pose.0.rotation.euler_angles().1.to_degrees(),
-                pose.0.rotation.euler_angles().2.to_degrees()
+                world_matrix.translation,
+                world_matrix.rotation.euler_angles().0.to_degrees(),
+                world_matrix.rotation.euler_angles().1.to_degrees(),
+                world_matrix.rotation.euler_angles().2.to_degrees()
             );
         }
     }
@@ -259,5 +279,30 @@ fn main() {
             best_idx + 1,
             best_err
         );
+    }
+}
+
+#[cfg(test)]
+mod matrix {
+    use cv::nalgebra::{Matrix3, Rotation3, RowVector3};
+    #[test]
+    fn name() {
+        let rot = Matrix3::from_rows(&[
+            RowVector3::new(
+                -0.3502338097665911f64,
+                0.02643171797632585,
+                -0.9362892943856613,
+            ),
+            RowVector3::new(-0.9353724395115832, 0.0425716606549217, 0.35109265602007805),
+            RowVector3::new(0.04913937218290441, 0.9987437198770777, 0.00981346562473431),
+        ]);
+
+        let rotation = Rotation3::from_matrix(&rot);
+        println!(
+            "rotation {}, {}, {}",
+            rotation.euler_angles().0.to_degrees(),
+            rotation.euler_angles().1.to_degrees(),
+            rotation.euler_angles().2.to_degrees(),
+        )
     }
 }
